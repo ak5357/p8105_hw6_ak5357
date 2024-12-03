@@ -152,24 +152,32 @@ bwt_df = read_csv("data/birthweight.csv") |>
 
 Propose a regression model for birthweight. This model may be based on a hypothesized structure for the factors that underly birthweight, on a data-driven model-building process, or a combination of the two. Describe your modeling process.
 
-**Hypothesis and process descrption:** I hypothesize that the following variables will be associated with birthweight.
+**Process**
 
-* baby sex
-* family income (proxy for socioeconomic status)
-* gestational age in weeks
-* mother's height
-* mother's smoking
+First let's see which variables have a statistically significant association with birthweight (at the alpha = 0.05 level).
 
 ```{r}
-bwt_model = bwt_df |> 
-  lm(bwt ~ babysex + fincome + gaweeks + mheight + smoken, data = _)
+bwt_df |> 
+  lm(bwt ~ babysex + bhead + blength + delwt + fincome + frace + gaweeks + malform + menarche + mheight + momage + mrace + parity + pnumlbw + pnumsga + ppbmi + ppwt + smoken + wtgain,
+     data = _) |> 
+  broom::tidy() |>  
+  filter(p.value < 0.05, term != "(Intercept)") |> 
+  arrange(-abs(estimate)) |> 
+  knitr::kable()
+```
+
+I will use these variables shown above in my model.
+
+```{r}
+model1 = bwt_df |> 
+  lm(bwt ~ bhead + blength + delwt + gaweeks + mrace + parity + babysex + smoken, data = _)
 ```
 
 Show a plot of model residuals against fitted values. Use add_predictions and add_residuals in making this plot.
 ```{r}
 bwt_df |> 
-  add_predictions(bwt_model) |> 
-  add_residuals(bwt_model) |>
+  add_predictions(model1) |> 
+  add_residuals(model1) |>
   ggplot(aes(x = pred, y = resid)) +
   geom_point(alpha = 0.5) +
   geom_hline(yintercept = 0, linetype = "dashed") +
@@ -179,7 +187,54 @@ bwt_df |>
     y = "Residuals")
 ```
 
+Compare your model to two others:
 
+* One using length at birth and gestational age as predictors (main effects only)
+* One using head circumference, length, sex, and all interactions (including the three-way interaction) between these
 
+**Model 1**
+```{r}
+model2 = lm(bwt ~ blength + gaweeks, data = bwt_df)
+model2 |> 
+  broom::tidy() |> 
+  knitr::kable()
+```
 
+**Model 2**
+```{r}
+model3 = lm(bwt ~ bhead * blength * babysex, data = bwt_df)
+model3 |> 
+  broom::tidy() |> 
+  knitr::kable()
+```
+
+Make this comparison in terms of the cross-validated prediction error; use `crossv_mc` and functions in purrr as appropriate.
+
+```{r}
+bwt_split = crossv_mc(bwt_df, 100)
+
+bwt_cv = bwt_split |> 
+  mutate(
+    model1 = map(train, \(x) lm(bwt ~ bhead + blength + delwt + gaweeks + mrace + parity + babysex + smoken, data = x)),
+    model2 = map(train, \(x) lm(bwt ~ blength + gaweeks, data = x)),
+    model3 = map(train, \(x) lm(bwt ~ bhead * blength * babysex, data = x))
+  ) |> 
+  mutate(
+    rmse1 = map2_dbl(model1, test, rmse),
+    rmse2 = map2_dbl(model2, test, rmse),
+    rmse3 = map2_dbl(model3, test, rmse)
+  )
+```
+
+```{r}
+bwt_cv |> 
+  summarize(
+    mean_error1 = mean(rmse1),
+    mean_error2 = mean(rmse2),
+    mean_error3 = mean(rmse3)
+  ) |> 
+  knitr::kable()
+```
+
+Since Model 1 has the lowest error, this suggests that the factors I chose are effective predictors. This makes sense because their p-values were significant in the initial test model examining main effects of all variables. However, Model 3 has a similar error to Model 1, which suggests that the added complexity of Model 1 may not necessarily enhance its predictive power.
 
